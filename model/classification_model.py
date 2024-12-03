@@ -1,3 +1,4 @@
+import os
 from sklearn.cluster import KMeans
 import torch
 import torch.nn as nn
@@ -91,3 +92,36 @@ class SpeakerClassifier(nn.Module):
         kmeans = KMeans(n_clusters=num_speakers, random_state=42)
         labels = kmeans.fit_predict(latent_features)
         return labels
+    
+def inference(signal, sample_rate=16000, num_speakers=2):
+    autoencoder = SpeakerClassifier(13, 16)
+
+    autoencoder.eval()
+
+    if os.path.exists("model/weights/model_weights.pth"):
+        autoencoder.load_weights()
+        print("[INFO] - Weights was loaded")
+    else:
+        raise NotImplementedError("Не существует готовых к использованию весов")
+    
+    all_latent_features = []
+    batch_features = []
+    
+    mfcc = SpeakerClassifier.calculate_mfcc(signal, sample_rate, num_mfcc=13)
+    batch_features.append(mfcc)
+    
+    batch_features = torch.tensor(np.vstack(batch_features), dtype=torch.float32)
+    
+    with torch.no_grad():
+        latent, _ = autoencoder(batch_features)
+
+    all_latent_features.append(latent.numpy())
+    all_latent_features = np.vstack(all_latent_features)
+
+    num_speakers = 3
+    labels = SpeakerClassifier.cluster_speakers(all_latent_features, num_speakers)
+
+    print(f"Predicted number of speakers: {num_speakers}")
+    print(f"Cluster labels: {labels}")
+    
+    return labels

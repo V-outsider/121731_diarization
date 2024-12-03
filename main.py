@@ -1,19 +1,23 @@
+from types import NoneType
 import streamlit as st
 import numpy as np
 import sounddevice as sd
 import scipy.fftpack
 import matplotlib.pyplot as plt
-from scipy.fftpack import dct
 
 import scipy.io.wavfile as wavfile
 import tempfile
 import os
+
+from model.classification_model import SpeakerClassifier, inference
+from utils.chart_helpers import chart_labels
 
 st.set_page_config(page_title="Спектральный анализ голоса", layout="wide")
 st.title("Диаризация спикеров")
 
 for key, default_value in {
     'audio_data': None,
+    'num_speakers': 2,
     'sample_rate': 16000,
     'fft': None
 }.items():
@@ -27,62 +31,6 @@ def record_audio(duration=3):
                       channels=1)
     sd.wait()
     return recording.flatten()
-
-def calculate_mfcc(signal, sample_rate, num_mfcc=13, frame_size=0.025, frame_stride=0.01, num_filters=26, fft_size=512):
-    # Step 1: Pre-emphasis
-    pre_emphasis = 0.97
-    emphasized_signal = np.append(signal[0], signal[1:] - pre_emphasis * signal[:-1])
-    
-    # Step 2: Framing
-    frame_length = int(frame_size * sample_rate)
-    frame_step = int(frame_stride * sample_rate)
-    signal_length = len(emphasized_signal)
-    num_frames = int(np.ceil((signal_length - frame_length) / frame_step)) + 1
-
-
-    pad_signal_length = num_frames * frame_step + frame_length
-    z = np.zeros((pad_signal_length - signal_length))
-    padded_signal = np.append(emphasized_signal, z)
-
-    indices = np.tile(np.arange(0, frame_length), (num_frames, 1)) + \
-              np.tile(np.arange(0, num_frames * frame_step, frame_step), (frame_length, 1)).T
-    frames = padded_signal[indices.astype(np.int32, copy=False)]
-    
-    # Step 3: Apply Hamming window
-    frames *= np.hamming(frame_length)
-    
-    # Step 4: FFT and Power Spectrum
-    mag_frames = np.absolute(np.fft.rfft(frames, fft_size))  # Magnitude of FFT
-    pow_frames = ((1.0 / fft_size) * (mag_frames ** 2))  # Power Spectrum
-    
-    # Step 5: Mel Filter Bank
-    low_freq_mel = 0
-    high_freq_mel = (2595 * np.log10(1 + (sample_rate / 2) / 700))  # Convert Hz to Mel
-    mel_points = np.linspace(low_freq_mel, high_freq_mel, num_filters + 2)  # Equally spaced in Mel scale
-    hz_points = (700 * (10**(mel_points / 2595) - 1))  # Convert Mel to Hz
-    bin = np.floor((fft_size + 1) * hz_points / sample_rate).astype(np.int32)
-
-    fbank = np.zeros((num_filters, int(np.floor(fft_size / 2 + 1))))
-    for m in range(1, num_filters + 1):
-        f_m_minus = bin[m - 1]   # Left
-        f_m = bin[m]             # Center
-        f_m_plus = bin[m + 1]    # Right
-
-        for k in range(f_m_minus, f_m):
-            fbank[m - 1, k] = (k - bin[m - 1]) / (bin[m] - bin[m - 1])
-        for k in range(f_m, f_m_plus):
-            fbank[m - 1, k] = (bin[m + 1] - k) / (bin[m + 1] - bin[m])
-
-    filter_banks = np.dot(pow_frames, fbank.T)
-    filter_banks = np.where(filter_banks == 0, np.finfo(float).eps, filter_banks)  # Numerical Stability
-    filter_banks = 20 * np.log10(filter_banks)  # dB
-
-    # Step 6: Discrete Cosine Transform (DCT)
-    mfcc = dct(filter_banks, axis=1, norm='ortho')[:, :num_mfcc]
-
-    # Step 7: Return MFCC
-    return mfcc
-
 
 def plot_mfcc(mfcc):
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -129,8 +77,12 @@ with col1:
 with col2:
     st.subheader("Расширенное управление")
     sample_rate = st.text_input("Частота дискретизации", value=st.session_state.sample_rate, help="FFF")
+    num_speakers = st.text_input("Колличество классов спикеров", value=st.session_state.num_speakers, help="FFF")
+    
     if sample_rate:
         st.session_state.sample_rate = int(sample_rate)
+    if  num_speakers:
+        st.session_state.num_speakers = int(num_speakers)
 
     # st.info("Тут будут всякие кнопочки и формы")
 
@@ -203,16 +155,24 @@ with tab3:
         audio_data = st.session_state.audio_data
         sample_rate = st.session_state.sample_rate
 
-        if type(audio_data) != None:
+        if type(audio_data) != NoneType:
             signal = audio_data / np.max(np.abs(audio_data))
 
-            # Extract MFCC
-            mfcc = calculate_mfcc(signal, sample_rate)
-            # mfcc2 = librosa.feature.mfcc(y=audio_data, n_mfcc=13, sr=sample_rate, hop_length=160)
-
-
+            mfcc = SpeakerClassifier.calculate_mfcc(signal, sample_rate)
             pl = plot_mfcc(mfcc)
-            # pl2 = plot_mfcc(mfcc2)
 
             st.pyplot(pl)
-            # st.pyplot(pl2)
+with tab4:
+    if 'audio_data' in st.session_state:
+        audio_data = st.session_state.audio_data
+        sample_rate = st.session_state.sample_rate
+        num_speakers = st.session_state.num_speakers
+
+        if type(audio_data) != NoneType:
+            # signal = audio_data / np.max(np.abs(audio_data))
+
+            labels = inference(audio_data, sample_rate, num_speakers)
+            
+            plt = chart_labels(labels, len(signal)/sample_rate, num_speakers)
+
+            st.pyplot(plt)
