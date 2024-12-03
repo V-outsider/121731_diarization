@@ -1,3 +1,4 @@
+from sklearn.cluster import KMeans
 import torch
 import torch.nn as nn
 import numpy as np
@@ -24,7 +25,8 @@ class SpeakerClassifier(nn.Module):
         reconstruction = self.decoder(embedding)
         return embedding, reconstruction
 
-    def calculate_mfcc(self, signal, sample_rate, num_mfcc=13, frame_size=0.025, frame_stride=0.01, num_filters=26, fft_size=512):
+    @classmethod
+    def calculate_mfcc(cls, signal, sample_rate, num_mfcc=13, frame_size=0.025, frame_stride=0.01, num_filters=26, fft_size=512):
         # Pre-emphasis
         pre_emphasis = 0.97
         emphasized_signal = np.append(signal[0], signal[1:] - pre_emphasis * signal[:-1])
@@ -78,3 +80,14 @@ class SpeakerClassifier(nn.Module):
 
         return mfcc
     
+    def save_weights(self):
+        torch.save(self.state_dict(), 'model/weights/model_weights.pth')
+
+    def load_weights(self):
+        self.load_state_dict(torch.load("model/weights/model_weights.pth"))
+
+    @classmethod
+    def cluster_speakers(cls, latent_features, num_speakers):
+        kmeans = KMeans(n_clusters=num_speakers, random_state=42)
+        labels = kmeans.fit_predict(latent_features)
+        return labels
