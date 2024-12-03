@@ -99,6 +99,7 @@ def main():
 
     print(f"Predicted number of speakers: {num_speakers}")
     print(f"Cluster labels: {labels}")
+    
     # Step 5: Extract Latent Features
     # autoencoder.eval()
     # all_latent_features = []
